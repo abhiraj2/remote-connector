@@ -1,3 +1,19 @@
+/*
+Server for remote-connector hosts a server at the specified location.
+One and the only argument that is necessary for the program serves as its rootpath.
+When the client connects to the server it is first given access to this path.
+
+Usage:
+	server rootpath
+
+TODOs:
+	Lots of todos are there, rework the arguments system to work with flags and args parsing is the first one to begin with.
+	Root directory checking is another.
+	SSL certification would be cherry on top.
+
+Author:
+	abhiraj
+*/
 package main
 
 import(
@@ -20,6 +36,9 @@ type Message[T any] struct{
 	Msg_type string
 }
 
+//initHandshake uses seperate Handshake for verifying the client for data transfer with the client who made the request
+//parameters: client, connection, reader
+//returns true if Handshake is Success 
 func initHandshake(cl *client.Client, conn net.Conn, reader *bufio.Reader) bool{
 	buf, err := reader.ReadString('\n')
 	if err != nil {
@@ -45,11 +64,14 @@ func initHandshake(cl *client.Client, conn net.Conn, reader *bufio.Reader) bool{
 	return true
 }
 
+//beginFileTransfer contains the main logic for sending files in chunks of buf_size to the client
+//parameters are client, path, writer and the open file
+//returns error if any 
 func beginFileTransfer(cl *client.Client, path string, writer net.Conn, file *os.File) error{
 	buf_size := 1024*1024
 	buf := make([]byte, buf_size)
-	//done := int64(0)
 	transfer := true
+
 	for transfer{
 		size_read, err := file.Read(buf)
 		if err!=nil{
@@ -67,112 +89,126 @@ func beginFileTransfer(cl *client.Client, path string, writer net.Conn, file *os
 	return nil
 }
 
+//handleCp initializes handshake and file copying after validation of command.
+//returns error
 func handleCp(cl *client.Client, path string, serv_fs net.Listener) error{
-	fmt.Println("Inside handleCp")
+	//Accept connection to the data port
 	conn_fs, err := serv_fs.Accept()
+	defer conn_fs.Close()
 	if err != nil {
 		panic(err)
 	}
 	cl_reader := bufio.NewReader(conn_fs)
 	handshake:= initHandshake(cl, conn_fs, cl_reader)
 	if !handshake {
-		panic(errors.New("Handshake Failed"))
+		return errors.New("Handshake Failed")
 	}
 	fmt.Println("Handshake Success")
+
 	file, err := os.Open(path)
+	defer file.Close()
 	if err != nil{
 		panic(err)
 	}
+	//Get file info for getting the size and send a corresponding message to the client
 	info, _:= file.Stat()
-	//cl_writer := bufio.NewWriter(conn_fs)
 	msg := Message[int64]{200, info.Size(), "size"}
 	msg_json, _ := json.Marshal(&msg)
 	fmt.Fprintf(conn_fs, string(msg_json) + "\n")
+	
  	err = beginFileTransfer(cl, path, conn_fs, file)
-	file.Close()
-	conn_fs.Close()
 	return err
 }
 
+//handleCon is a go routine for handling each connected client concurrently.
+//take in the connection variable, idkeeper, rootpath and the data connection listener
 func handleCon(con net.Conn, idk *idkeeper.Idkeeper, rootpath string, serv_fs net.Listener){
-	//buf := make([]byte, 1024)
 	defer fmt.Println("Connection Terminated")
 	r_conn:= bufio.NewReader(con)
 	buf, err := r_conn.ReadString('\n')
 	connect := false
 	if err != nil{
 		panic(err)
-	} else{
-		if buf == "Connect FTP\n"{
-			fmt.Println("New Connection Request");
-			unique_id, err := idk.AddElem()
-			if err {
-				panic("Error, num gen")
+	}
+	if buf == "Connect FTP\n"{
+		fmt.Println("New Connection Request");
+		// generate a new unique client id
+		unique_id, err := idk.AddElem()
+		if err {
+			panic("Error, num gen")
+		}
+		//send the new unique id to the client
+		msg_uniqueid := &Message[uint16]{200, unique_id, rootpath}
+		msg_json, error:= json.Marshal(msg_uniqueid)
+		if error != nil{
+			panic(error)
+		}
+		fmt.Fprintf(con, string(append(msg_json, '\n')))
+		//initialize a new client variable
+		var cl client.Client
+		cl.Setid(unique_id)
+		cl.Setpwd(rootpath)
+		cl.Root = rootpath
+		connect = true //informs connected
+		var msg Message[string] //for general message passing
+		var cmd client.Cmd //for working with commands
+		//while its connected keep reading commands from the client and work accordingly
+		for connect{
+			//read the command and parse it
+			cmdline, err := r_conn.ReadString('\n')
+			if err != nil{
+				connect = false
+				continue
 			}
-			msg_uniqueid := &Message[uint16]{200, unique_id, rootpath}
-			msg_json, error:= json.Marshal(msg_uniqueid)
-			if error != nil{
-				panic(error)
+			err = json.Unmarshal([]byte(cmdline), &msg)
+			if err != nil {
+				panic(err)
 			}
-			var cl client.Client
-			cl.Setid(unique_id)
-			cl.Setpwd(rootpath)
-			cl.Root = rootpath
-			connect = true
-			fmt.Fprintf(con, string(append(msg_json, '\n')))
-			var msg Message[string]
-			var cmd client.Cmd
-			for connect{
-				cmdline, err := r_conn.ReadString('\n')
+			//set a bit vector for command type
+			if msg.Msg_type == "command"{
+				command_type := 1
+				err := json.Unmarshal([]byte(msg.Message), &cmd)
 				if err != nil{
-					connect = false
-					continue
-				}
-				err = json.Unmarshal([]byte(cmdline), &msg)
-				if err != nil {
 					panic(err)
 				}
-				if msg.Msg_type == "command"{
-					command_type := 1
-					err := json.Unmarshal([]byte(msg.Message), &cmd)
-					if err != nil{
-						panic(err)
-					}
-					switch cmd.Argv[0]{
-						case "ls":
-							command_type <<= 1
-						case "cd":
-							command_type <<= 2
-						case "cp":
-							command_type <<= 3
-					}
-					res, err := cmd.Execute_cmd(&cl)
-					//fmt.Println(res, command_type)
-					if err != nil{
-						msg = Message[string]{500, err.Error(), "error"}
-						msg_json, _ = json.Marshal(msg)
-						fmt.Fprintf(con, string(append(msg_json, '\n')))
-						continue // This continue statement is really important
-					}
-					res_json, _ := json.Marshal(res)
-					switch command_type{
-						case 2:
-							msg = Message[string]{200, string(res_json), "ls_reply"}
-						case 4:
-							msg = Message[string]{200, cl.Getpwd(), "cd_reply"}
-						case 8:
-							msg = Message[string]{200, res[0], "cp_reply"}
-					}
-					if command_type == 8 {
-						go handleCp(&cl, res[0], serv_fs)
-					}
+				switch cmd.Argv[0]{
+					case "ls":
+						command_type <<= 1
+					case "cd":
+						command_type <<= 2
+					case "cp":
+						command_type <<= 3
+				}
+				//execute the command
+				res, err := cmd.Execute_cmd(&cl)
+				if err != nil{
+					msg = Message[string]{500, err.Error(), "error"}
 					msg_json, _ = json.Marshal(msg)
 					fmt.Fprintf(con, string(append(msg_json, '\n')))
+					continue // This continue statement is really important, otherwise the same iteration will continue
 				}
+				res_json, _ := json.Marshal(res)
+				//Building the reply
+				switch command_type{
+					case 2:
+						msg = Message[string]{200, string(res_json), "ls_reply"}
+					case 4:
+						msg = Message[string]{200, cl.Getpwd(), "cd_reply"}
+					case 8:
+						msg = Message[string]{200, res[0], "cp_reply"}
+				}
+				if command_type == 8 {
+					//another go routine for handling the copying
+					go handleCp(&cl, res[0], serv_fs)
+				}
+				msg_json, _ = json.Marshal(msg)
+				fmt.Fprintf(con, string(append(msg_json, '\n')))
 			}
-			_ = idk.RemoveElem(unique_id)
 		}
+		// remove the uninque_id from the idkeeper
+		_ = idk.RemoveElem(unique_id)
 	}
+
 }
 
 func main() {

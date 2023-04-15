@@ -1,3 +1,8 @@
+/*
+Client package includes a lot of functions that make working with the client really easy.
+The package contain a lot of functionality with the client side of things
+*/
+
 package client
 
 import(
@@ -13,6 +18,8 @@ type Cmd struct{
 	Argv []string
 }
 
+//Execute_cmd recognises the command and calls the aoppropriate string
+//returns a list of strings along with error if any
 func (cmd *Cmd) Execute_cmd(cl *Client) ([]string, error){
 	fmt.Println(cmd.Command)
 	switch cmd.Argv[0] {
@@ -45,6 +52,7 @@ type Client struct{
 	Root string
 }
 
+//Getters and Setters
 func (cl *Client) Setid(id uint16){
 	cl.client_id = id
 }
@@ -148,16 +156,21 @@ func check_valid_file(path string) bool{
 	return true
 }
 
+
+//Cp performs a check on the command and if it is valid or not 
+//returns file path if it is valid
 func (cl *Client) Cp(cmd *Cmd) ([]string, error){
 	var res []string
-	if len(cmd.Argv) < 2{
+	//cp needs to have two args
+	if len(cmd.Argv) < 3{
 		return nil, errors.New("Not enough arguments")
 	}
+	
 	path := cmd.Argv[1]
 	if path[0] == '.'{
-		path = cl.Getpwd()+path
+		path = cl.Getpwd()+path //relative
 	} else{
-		path = cl.Root + path
+		path = cl.Root + path //absolute
 	}
 	valid := check_valid_file(path)
 	if !valid {
