@@ -36,10 +36,10 @@ type Message[T any] struct{
 	Msg_type string
 }
 
-//initHandshake uses seperate Handshake for verifying the client for data transfer with the client who made the request
+//InitHandshake uses seperate Handshake for verifying the client for data transfer with the client who made the request
 //parameters: client, connection, reader
 //returns true if Handshake is Success 
-func initHandshake(cl *client.Client, conn net.Conn, reader *bufio.Reader) bool{
+func InitHandshake(cl *client.Client, conn net.Conn, reader *bufio.Reader) bool{
 	buf, err := reader.ReadString('\n')
 	if err != nil {
 		panic(err)
@@ -64,10 +64,10 @@ func initHandshake(cl *client.Client, conn net.Conn, reader *bufio.Reader) bool{
 	return true
 }
 
-//beginFileTransfer contains the main logic for sending files in chunks of buf_size to the client
+//BeginFileTransfer contains the main logic for sending files in chunks of buf_size to the client
 //parameters are client, path, writer and the open file
 //returns error if any 
-func beginFileTransfer(cl *client.Client, path string, writer net.Conn, file *os.File) error{
+func BeginFileTransfer(cl *client.Client, path string, writer net.Conn, file *os.File) error{
 	buf_size := 1024*1024
 	buf := make([]byte, buf_size)
 	transfer := true
@@ -89,9 +89,9 @@ func beginFileTransfer(cl *client.Client, path string, writer net.Conn, file *os
 	return nil
 }
 
-//handleCp initializes handshake and file copying after validation of command.
+//HandleCp initializes handshake and file copying after validation of command.
 //returns error
-func handleCp(cl *client.Client, path string, serv_fs net.Listener) error{
+func HandleCp(cl *client.Client, path string, serv_fs net.Listener) error{
 	//Accept connection to the data port
 	conn_fs, err := serv_fs.Accept()
 	defer conn_fs.Close()
@@ -99,7 +99,7 @@ func handleCp(cl *client.Client, path string, serv_fs net.Listener) error{
 		panic(err)
 	}
 	cl_reader := bufio.NewReader(conn_fs)
-	handshake:= initHandshake(cl, conn_fs, cl_reader)
+	handshake:= InitHandshake(cl, conn_fs, cl_reader)
 	if !handshake {
 		return errors.New("Handshake Failed")
 	}
@@ -116,13 +116,13 @@ func handleCp(cl *client.Client, path string, serv_fs net.Listener) error{
 	msg_json, _ := json.Marshal(&msg)
 	fmt.Fprintf(conn_fs, string(msg_json) + "\n")
 	
- 	err = beginFileTransfer(cl, path, conn_fs, file)
+ 	err = BeginFileTransfer(cl, path, conn_fs, file)
 	return err
 }
 
-//handleCon is a go routine for handling each connected client concurrently.
+//HandleCon is a go routine for handling each connected client concurrently.
 //take in the connection variable, idkeeper, rootpath and the data connection listener
-func handleCon(con net.Conn, idk *idkeeper.Idkeeper, rootpath string, serv_fs net.Listener){
+func HandleCon(con net.Conn, idk *idkeeper.Idkeeper, rootpath string, serv_fs net.Listener){
 	defer fmt.Println("Connection Terminated")
 	r_conn:= bufio.NewReader(con)
 	buf, err := r_conn.ReadString('\n')
@@ -199,7 +199,7 @@ func handleCon(con net.Conn, idk *idkeeper.Idkeeper, rootpath string, serv_fs ne
 				}
 				if command_type == 8 {
 					//another go routine for handling the copying
-					go handleCp(&cl, res[0], serv_fs)
+					go HandleCp(&cl, res[0], serv_fs)
 				}
 				msg_json, _ = json.Marshal(msg)
 				fmt.Fprintf(con, string(append(msg_json, '\n')))
@@ -238,7 +238,7 @@ func main() {
 			if err != nil {
 				fmt.Println("Error ", err)
 			} else {
-				go handleCon(con, &idk, root, serv_fs)
+				go HandleCon(con, &idk, root, serv_fs)
 			}
 		}
 	}
