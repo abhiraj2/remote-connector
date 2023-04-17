@@ -2,6 +2,7 @@ package main
 
 import(
 	"os"
+	"io"
 	"fmt"
 	"net"
 	"bufio"
@@ -47,7 +48,30 @@ func initHandshake(id uint16, conn net.Conn, reader *bufio.Reader) bool {
 	return true
 }
 
-func file_transfer(cl *Client, cmd *cmdline.Cmd, reader net.Conn, file_size int64) error{
+func BeginFileTransferToSever(cl *Client, cmd *cmdline.Cmd, writer net.Conn, file *os.File, file_size int64) error{
+	buf_size := 1024*1024
+	buf := make([]byte, buf_size)
+	transfer := true
+	bar := progressbar.Default(file_size)
+	for transfer{
+		size_read, err := file.Read(buf)
+		if err!=nil{
+			if err == io.EOF{
+				transfer = false
+			} else{
+				return err
+			}
+		}
+		bar.Add(size_read)
+		writer.Write(buf[:size_read])
+		if size_read < buf_size{
+			transfer = false
+		}
+	}
+	return nil
+}
+
+func BeginFileTransferFromSever(cl *Client, cmd *cmdline.Cmd, reader net.Conn, file_size int64) error{
 	buf_size := 1024
 	buf := make([]byte, buf_size)
 	transfer := true
@@ -75,7 +99,7 @@ func file_transfer(cl *Client, cmd *cmdline.Cmd, reader net.Conn, file_size int6
 	return nil
 }
 
-func cp_handler(cl *Client, path string, cmd *cmdline.Cmd, ip string, port string) error{
+func cp_handler(cl *Client, path string, cmd *cmdline.Cmd, ip string, port string, upload bool) error{
 	fmt.Println("inside client cp_handler")
 	conn_fs, err := net.Dial("tcp", ip+":"+port)
 	if err != nil{
@@ -87,12 +111,27 @@ func cp_handler(cl *Client, path string, cmd *cmdline.Cmd, ip string, port strin
 		panic(errors.New("Handshake Failed"))
 	}
 	fmt.Println("Handshake Success")
-	msg := Message[int64]{}
-	msg_json, _ := serv_reader.ReadString('\n')
-	json.Unmarshal([]byte(msg_json), &msg)
-	file_size := msg.Message
-	fmt.Println(file_size)
-	err = file_transfer(cl, cmd, conn_fs, file_size)
+	if upload {
+		file, err := os.Open(path)
+		defer file.Close()
+		if err != nil{
+			panic(err)
+		}
+		//Get file info for getting the size and send a corresponding message to the client
+		info, _:= file.Stat()
+		msg := Message[int64]{200, info.Size(), "size"}
+		msg_json, _ := json.Marshal(&msg)
+		fmt.Fprintf(conn_fs, string(msg_json) + "\n")
+		err = BeginFileTransferToSever(cl, cmd, conn_fs, file, info.Size())
+	} else{
+		msg := Message[int64]{}
+		msg_json, _ := serv_reader.ReadString('\n')
+		json.Unmarshal([]byte(msg_json), &msg)
+		file_size := msg.Message
+		fmt.Println(file_size)
+		err = BeginFileTransferFromSever(cl, cmd, conn_fs, file_size)
+	}
+	
 	return nil
 }
 
@@ -146,8 +185,12 @@ func ftp_start(conn net.Conn, uniqueclientid uint16, rootpath string, ip string,
 						reply := reply_msg.Message
 						cl.Pwd = reply
 					case "cp_reply":
-						reply := reply_msg.Message
-						cp_handler(&cl, reply, &command, ip, port)
+						_ = reply_msg.Message
+						u:= false
+						if len(command.Argv) > 3 && command.Argv[3] == "-u"{
+							u = true
+						}
+						cp_handler(&cl, command.Argv[2], &command, ip, port, u)
 				}
 			}
 		} else{

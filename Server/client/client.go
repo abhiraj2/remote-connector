@@ -172,7 +172,10 @@ func (cl *Client) Cp(cmd *Cmd) ([]string, error){
 	} else{
 		path = cl.Root + path //absolute
 	}
-	valid := check_valid_file(path)
+	valid := true
+	if len(cmd.Argv) <= 3{
+		valid = check_valid_file(path)
+	}
 	if !valid {
 		return nil, errors.New("Invalid Pathname or the path is not a file")
 	}

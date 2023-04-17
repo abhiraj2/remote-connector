@@ -64,10 +64,37 @@ func InitHandshake(cl *client.Client, conn net.Conn, reader *bufio.Reader) bool{
 	return true
 }
 
-//BeginFileTransfer contains the main logic for sending files in chunks of buf_size to the client
+
+func BeginFileTransferFromClient(cl *client.Client, path string, reader net.Conn, file_size int64) error{
+	buf_size := 1024*1024
+	buf := make([]byte, buf_size)
+	new_file, err := os.Create(path)
+	defer new_file.Close()
+	if err != nil {
+		panic(err)
+	}
+	done := int64(0)
+	transfer := true
+	for transfer {
+		size_read, err := reader.Read(buf)
+		if err != nil{
+			return err
+		}
+		done += int64(size_read)
+
+		new_file.Write(buf[:size_read])
+		if done >= file_size{
+			fmt.Println("File Transfer Done")
+			transfer = false
+		}
+	}
+	return nil
+}
+
+//BeginFileTransferToClient contains the main logic for sending files in chunks of buf_size to the client
 //parameters are client, path, writer and the open file
 //returns error if any 
-func BeginFileTransfer(cl *client.Client, path string, writer net.Conn, file *os.File) error{
+func BeginFileTransferToClient(cl *client.Client, path string, writer net.Conn, file *os.File) error{
 	buf_size := 1024*1024
 	buf := make([]byte, buf_size)
 	transfer := true
@@ -91,7 +118,7 @@ func BeginFileTransfer(cl *client.Client, path string, writer net.Conn, file *os
 
 //HandleCp initializes handshake and file copying after validation of command.
 //returns error
-func HandleCp(cl *client.Client, path string, serv_fs net.Listener) error{
+func HandleCp(cl *client.Client, path string, serv_fs net.Listener, up bool) error{
 	//Accept connection to the data port
 	conn_fs, err := serv_fs.Accept()
 	defer conn_fs.Close()
@@ -105,19 +132,31 @@ func HandleCp(cl *client.Client, path string, serv_fs net.Listener) error{
 	}
 	fmt.Println("Handshake Success")
 
-	file, err := os.Open(path)
-	defer file.Close()
-	if err != nil{
-		panic(err)
+	if up{
+		fmt.Println("Trying Upload")
+		msg := Message[int64]{}
+		msg_json, _ := cl_reader.ReadString('\n')
+		json.Unmarshal([]byte(msg_json), &msg)
+		file_size := msg.Message
+		fmt.Println(file_size)
+		err = BeginFileTransferFromClient(cl, path, conn_fs, file_size)
+	}else{
+		file, err := os.Open(path)
+		fmt.Println(path)
+		defer file.Close()
+		if err != nil{
+			panic(err)
+		}
+		//Get file info for getting the size and send a corresponding message to the client
+		info, _:= file.Stat()
+		msg := Message[int64]{200, info.Size(), "size"}
+		msg_json, _ := json.Marshal(&msg)
+		fmt.Println(info.Size())
+		fmt.Fprintf(conn_fs, string(msg_json) + "\n")
+		
+ 		err = BeginFileTransferToClient(cl, path, conn_fs, file)
 	}
-	//Get file info for getting the size and send a corresponding message to the client
-	info, _:= file.Stat()
-	msg := Message[int64]{200, info.Size(), "size"}
-	msg_json, _ := json.Marshal(&msg)
-	fmt.Fprintf(conn_fs, string(msg_json) + "\n")
-	
- 	err = BeginFileTransfer(cl, path, conn_fs, file)
-	return err
+		return err
 }
 
 //HandleCon is a go routine for handling each connected client concurrently.
@@ -197,9 +236,11 @@ func HandleCon(con net.Conn, idk *idkeeper.Idkeeper, rootpath string, serv_fs ne
 					case 8:
 						msg = Message[string]{200, res[0], "cp_reply"}
 				}
-				if command_type == 8 {
+				if command_type == 8 && len(cmd.Argv) <= 3{
 					//another go routine for handling the copying
-					go HandleCp(&cl, res[0], serv_fs)
+					go HandleCp(&cl, res[0], serv_fs, false) //download to client
+				} else if command_type == 8 && len(cmd.Argv) >3 && cmd.Argv[3] == "-u"{
+					go HandleCp(&cl, res[0], serv_fs, true) //upload from client
 				}
 				msg_json, _ = json.Marshal(msg)
 				fmt.Fprintf(con, string(append(msg_json, '\n')))
@@ -232,7 +273,7 @@ func main() {
 	} else {
 		var idk idkeeper.Idkeeper
 		idk.Init()
-		fmt.Println("Server listening at 8000")
+		fmt.Println("Server listening at 4242")
 		for{
 			con, err := serv.Accept()
 			if err != nil {
