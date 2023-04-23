@@ -8,8 +8,9 @@ import(
 	"bufio"
 	"errors"
 	"encoding/json"
-	"github.com/abhiraj2/remote-connector/Client/cmdline"
+	"github.com/fatih/color"
 	"github.com/schollz/progressbar/v3"
+	"github.com/abhiraj2/remote-connector/Client/cmdline"
 )
 
 // Message provides a standard layout through which communication between the client and server takes place
@@ -26,8 +27,12 @@ type Client struct{
 }
 
 func print_ls(lis []string){
-	for _, name := range lis{
-		fmt.Println(name)
+	for _, ele := range lis{
+		if (len(ele)-len("--directory") > 0) && ele[len(ele)-len("--directory"):len(ele)] == "--directory"{
+			color.HiGreen(ele[:len(ele)-len("--directory")])
+		} else {
+			color.Cyan(ele)
+		}
 	}
 	fmt.Println("-----------------------------END---------------------------------")
 }
@@ -71,6 +76,9 @@ func BeginFileTransferToSever(cl *Client, cmd *cmdline.Cmd, writer net.Conn, fil
 	return nil
 }
 
+//BeginFileTansferFromServer is used to initiate downloads
+//same as BeginFileTransferFromClient in the client side application
+//returns error if any
 func BeginFileTransferFromSever(cl *Client, cmd *cmdline.Cmd, reader net.Conn, file_size int64) error{
 	buf_size := 1024
 	buf := make([]byte, buf_size)

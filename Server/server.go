@@ -24,8 +24,8 @@ import(
 	"bufio"
 	"errors"
 	"encoding/json"
-	"github.com/abhiraj2/remote-connector/Server/idkeeper"
 	"github.com/abhiraj2/remote-connector/Server/client"
+	"github.com/abhiraj2/remote-connector/Server/idkeeper"
 )
 
 
@@ -64,7 +64,9 @@ func InitHandshake(cl *client.Client, conn net.Conn, reader *bufio.Reader) bool{
 	return true
 }
 
-
+//BeginFileTansferFromClient is used to initiate uploads
+//same as BeginFileTransferFromServer in the client side application
+//returns error if any
 func BeginFileTransferFromClient(cl *client.Client, path string, reader net.Conn, file_size int64) error{
 	buf_size := 1024*1024
 	buf := make([]byte, buf_size)
@@ -93,7 +95,7 @@ func BeginFileTransferFromClient(cl *client.Client, path string, reader net.Conn
 
 //BeginFileTransferToClient contains the main logic for sending files in chunks of buf_size to the client
 //parameters are client, path, writer and the open file
-//returns error if any 
+//returns error if any
 func BeginFileTransferToClient(cl *client.Client, path string, writer net.Conn, file *os.File) error{
 	buf_size := 1024*1024
 	buf := make([]byte, buf_size)
@@ -156,7 +158,7 @@ func HandleCp(cl *client.Client, path string, serv_fs net.Listener, up bool) err
 		
  		err = BeginFileTransferToClient(cl, path, conn_fs, file)
 	}
-		return err
+	return err
 }
 
 //HandleCon is a go routine for handling each connected client concurrently.
