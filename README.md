@@ -1,5 +1,10 @@
 # remote-connector
-Remote File Transfer between two systems written in Golang
+Remote File Transfer between two systems written in Golang. Built with the usage of net library, this program enables file transfer between two systems seamless.
+
+Current Features:
+  * Support for multiple clients on the same server with usage of go routines and mutexes for synchronization.
+  * Progress Bar for representing file transfer process.
+  * Additional handshakes introduced for verification between the client and server pair.
 
 # Usage
 ### Server
