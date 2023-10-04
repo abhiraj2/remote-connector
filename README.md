@@ -24,7 +24,8 @@ Current Features:
 * ls: works pretty much equivalent to the linux ls command `ls {path}`
 ![image](https://github.com/abhiraj2/remote-connector/assets/47693983/c2efaef5-121c-4045-8edc-f370f3f5001c)
 
-* cd: equivalent to the change directory linux command. `cd path` 
+* cd: equivalent to the change directory linux command. `cd path`
+ 
 ![image](https://github.com/abhiraj2/remote-connector/assets/47693983/088d04c8-f01b-43c8-ad0d-75f79e152240)
 
 * cp: used for downloading and uploading. `cd server_path client_path {-u}`. Takes in an option -u flag to denote enable uploads.
